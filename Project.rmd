@@ -1,0 +1,74 @@
+---
+title: "exercise prediction"
+author: "Arthur"
+date: "Friday, September 25, 2015"
+output: html_document
+---
+
+#Introduction
+
+The object of this paper is to develop a model for predicting the manner in which exercise was done based on data collected by devices such as Jawbone Up, Nike Fuelband and Fitbit. The HAR dataset we will be using was created by some dudes and was made available on http://groupware.les.inf.puc-rio.br/har. 
+I will divide the data into a training set and a cross-validation set, then use the training set to create a few different prediction models (random forest, glm, boosting). Then I will select the best model based on performance on the cross-validation set. This is neccessary as the best performing model on the training set could be overfitting the data.
+The final model will then be used to make prediction on a test set with 20 observations.
+
+##Organizing the data
+
+I first divided the data into two parts. 75% were put into a training set and the rest was reserved for cross-validation purposes. After looking at a summary of the training data I first noticed that quite a few variables had either no entry or NA entry for almost all the observations. These variables were removed for both the data as well as the observations that were just the name of a subject or a timestamp. 52 obesrvations remained excluding the 'classe' column. Subsequently all the data was normalised by subtracting the mean of each colomn and dividing by the standard deviation. This was done to ensure all the data was on the same scale, as this is necessary for optimal performance in most machine learning paradigms.
+One last thing I noticed was that many of the remaining variables were highly correlated, I decided against taking steps to remedy the problem at this point and will come back to the problem later.
+```{r}
+library(caret)
+hardata <- read.csv("pml-training.csv")
+##partitioning data
+set.seed(33421)
+part <- createDataPartition(y=hardata$classe,p=0.75,list=F)
+trainhar <- hardata[part,]
+cvhar <- hardata[-part,]
+##getting rid of unnecessary columns
+goodCols<-c(8,9,10,11,37,38,39,40,41,42,43,44,45,46,47,48,49,60,61,62,63,64,65,66,67,68,84,85,86,102,113,114,115,116,117,118,119,120,121,122,123,124,140,151,152,153,154,155,156,157,158,159,160)
+trainhar <- trainhar[,goodCols]
+#normalizing
+mn <- colMeans(trainhar[1:52])
+sd <- apply(trainhar[1:52],2,sd)
+trainhar[1:52] <- sweep(trainhar[1:52],2,mn,"-")
+trainhar[1:52] <- sweep(trainhar[1:52],2,sd,"/")
+plot(trainhar$roll_belt,trainhar$yaw_belt, col=trainhar$classe)
+```
+
+I will also manipulate the cross-validation data in the same way the training data was manipulated so I can predict the outcomes later. 
+```{r}
+cvhar <- cvhar[,goodCols]
+cvhar[1:52] <- sweep(cvhar[1:52],2,mn,"-")
+cvhar[1:52] <- sweep(cvhar[1:52],2,sd,"/")
+```
+
+
+
+##Training models
+
+Now the data is clean I can start training some models on the traing set. I will train three models, one based on random forest, the second is a simple tree predictor and the last one uses stochastic gradient boosting. As mentioned earlier many of the variables are correlated. To get solve this problem principal component analysis was used to pre process the data in all of the models.
+```{r eval=FALSE, cache=TRUE}
+rfmodel <- train(classe~.,data=trainhar,preProcess="pca",method="rf")
+treemod  <- train(classe~.,data=trainhar,method="rpart",preProcess="pca")
+boostmod  <- train(classe~.,data=trainhar,method="gbm",preProcess="pca")
+```
+Now the models have been trained we can look at in-sample and out-of-sample error rates.
+```{r cache=TRUE}
+model <- c("random forest","tree","gradient boosting")
+in.sample.error <- c(1-sum(predict(rfmodel,trainhar)==trainhar$classe)/(dim(trainhar)[1]),1-sum(predict(treemod,trainhar)==trainhar$classe)/(dim(trainhar)[1]),1-sum(predict(boostmod,trainhar)==trainhar$classe)/(dim(trainhar)[1]))
+out.of.sample.error <- c(1-sum(predict(rfmodel,cvhar)==cvhar$classe)/(dim(cvhar)[1]),1-sum(predict(treemod,cvhar)==cvhar$classe)/(dim(cvhar)[1]),1-sum(predict(boostmod,cvhar)==cvhar$classe)/(dim(cvhar)[1]))
+df <- data.frame(model,in.sample.error,out.of.sample.error)
+df
+```
+The random forest model gives us by far the best predictions on out-of-sample data. For this reason I will be using this model on the test data. First I load in the data and make the same changes I made to the training data, then I will use the random forest model to make predictions.
+```{r cache=TRUE}
+testhar <- read.csv("pml-testing.csv")
+testhar <- testhar[,goodCols]
+testhar[1:52] <- sweep(testhar[1:52],2,mn,"-")
+testhar[1:52] <- sweep(testhar[1:52],2,sd,"/")
+pred <- predict(rfmodel,newdata=testhar)
+pred
+```
+
+
+
+
